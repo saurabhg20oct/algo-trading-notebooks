@@ -1,6 +1,6 @@
 # ServLoci Colab Notebook Series
 
-Twenty runnable Google Colab notebooks covering the [ServLoci](https://comm.servloci.in)
+Twenty-one runnable Google Colab notebooks covering the [ServLoci](https://comm.servloci.in)
 Python SDK, options-pricing math, strategy construction, and a full algo-trading
 workflow — from claiming a static IP through a capstone dry-run bot.
 
@@ -15,11 +15,9 @@ Each notebook's setup cell explains this, but in short:
 1. Sign up free at [comm.servloci.in/register](https://comm.servloci.in/register)
    (or [comm.servloci.in/auth/google?free=1](https://comm.servloci.in/auth/google?free=1)
    for an instant Google-login trial).
-2. Your `api_key` / `api_secret` pair appears in your portal at
-   [comm.servloci.in/user](https://comm.servloci.in/user).
-3. Set them as Colab secrets or environment variables (`SERVLOCI_API_KEY`,
-   `SERVLOCI_API_SECRET`) before running — or leave them unset to explore in
-   demo mode.
+2. Generate the single `sl_live_…` token on the landing page or in your portal.
+3. Store it as `STATIC_IP_TOKEN` in Colab Secrets. Your broker credentials stay
+   in separate secrets and are never sent to ServLoci.
 
 Full docs: [comm.servloci.in/docs](https://comm.servloci.in/docs). SDK source
 served live at [comm.servloci.in/sdk/servloci.py](https://comm.servloci.in/sdk/servloci.py).
@@ -28,6 +26,8 @@ Rendered (read-only) output for every notebook is served statically at
 account needed just to read them.
 
 ## Notebooks
+
+**Fastest Dhan setup:** [open `colab_dhan_trading_static_ip.ipynb` in Google Colab](https://colab.research.google.com/github/ivikasavnish/algo-trading-notebooks/blob/main/notebooks/colab_dhan_trading_static_ip.ipynb). It installs pinned versions, reads secrets with `google.colab.userdata`, verifies static egress, creates a DhanHQ 2.2 client, and keeps order placement in dry-run mode.
 
 | # | Notebook | What it covers |
 |---|----------|-----------------|
