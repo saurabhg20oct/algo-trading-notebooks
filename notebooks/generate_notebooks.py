@@ -2,7 +2,7 @@
 """Generates notebooks/*.ipynb — the ServLoci algo/options trading series.
 
 Run: python notebooks/generate_notebooks.py
-Regenerates all 20 .ipynb files in this directory from the templates below.
+Regenerates the learning series and the standalone Colab Dhan quickstart.
 """
 import json
 import os
@@ -50,7 +50,7 @@ def header_cells(idx, filename, title, subtitle):
 
 {subtitle}
 
-Part {idx:02d} of 20 in the [ServLoci algo/options trading notebook series]({SITE}/docs) — full index in `notebooks/README.md`.
+Part {idx:02d} of {len(NOTEBOOKS)} in the [ServLoci algo/options trading notebook series]({SITE}/docs) — full index in `notebooks/README.md`.
 """
     return [md(text)]
 
@@ -176,6 +176,150 @@ def plot_payoff(points, title):
     plt.show()
 """
 
+INDICATOR_ENGINE_SRC = r'''import numpy as np
+import pandas as pd
+
+def compute_top_50(frame):
+    """Return 50 named indicators from an OHLCV DataFrame.
+
+    Input columns are case-insensitive: open, high, low, close and volume.
+    Warm-up rows contain NaN by design; never backfill them into a live signal.
+    """
+    df = frame.rename(columns={c: str(c).lower() for c in frame.columns}).copy()
+    required = {"open", "high", "low", "close", "volume"}
+    missing = required.difference(df.columns)
+    if missing:
+        raise ValueError(f"missing OHLCV columns: {sorted(missing)}")
+    o, h, l, c, v = (df[x].astype(float) for x in ("open", "high", "low", "close", "volume"))
+    out = pd.DataFrame(index=df.index)
+    safe = lambda x: x.replace([np.inf, -np.inf], np.nan)
+    ema = lambda x, n: x.ewm(span=n, adjust=False, min_periods=n).mean()
+    wma = lambda x, n: x.rolling(n).apply(
+        lambda a: np.dot(a, np.arange(1, n + 1)) / (n * (n + 1) / 2), raw=True
+    )
+
+    # Trend and moving-average family (1-11)
+    out["01_sma_20"] = c.rolling(20).mean()
+    out["02_ema_20"] = ema(c, 20)
+    out["03_wma_20"] = wma(c, 20)
+    out["04_hma_20"] = wma(2 * wma(c, 10) - wma(c, 20), 4)
+    e1 = ema(c, 20); e2 = ema(e1, 20); e3 = ema(e2, 20)
+    out["05_dema_20"] = 2 * e1 - e2
+    out["06_tema_20"] = 3 * e1 - 3 * e2 + e3
+    out["07_vwma_20"] = safe((c * v).rolling(20).sum() / v.rolling(20).sum())
+    macd = ema(c, 12) - ema(c, 26)
+    out["08_macd"] = macd
+    out["09_macd_signal"] = ema(macd, 9)
+    out["10_ppo"] = safe(100 * macd / ema(c, 26))
+    ex1 = ema(c, 15); ex2 = ema(ex1, 15); ex3 = ema(ex2, 15)
+    out["11_trix"] = ex3.pct_change(fill_method=None) * 100
+
+    # Momentum and oscillator family (12-24)
+    out["12_roc_12"] = c.pct_change(12, fill_method=None) * 100
+    out["13_momentum_10"] = c.diff(10)
+    delta = c.diff(); gain = delta.clip(lower=0); loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    avg_loss = loss.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    out["14_rsi_14"] = 100 - (100 / (1 + safe(avg_gain / avg_loss)))
+    low14, high14 = l.rolling(14).min(), h.rolling(14).max()
+    stoch = safe(100 * (c - low14) / (high14 - low14))
+    out["15_stochastic_k"] = stoch
+    out["16_stochastic_d"] = stoch.rolling(3).mean()
+    out["17_williams_r"] = safe(-100 * (high14 - c) / (high14 - low14))
+    typical = (h + l + c) / 3
+    tp_mean = typical.rolling(20).mean()
+    mean_dev = typical.rolling(20).apply(lambda a: np.mean(np.abs(a - a.mean())), raw=True)
+    out["18_cci_20"] = safe((typical - tp_mean) / (0.015 * mean_dev))
+    prev = c.shift(1)
+    buy_pressure = c - pd.concat([l, prev], axis=1).min(axis=1)
+    true_range = pd.concat([h - l, (h - prev).abs(), (l - prev).abs()], axis=1).max(axis=1)
+    out["19_ultimate_oscillator"] = safe(100 * (
+        4 * buy_pressure.rolling(7).sum() / true_range.rolling(7).sum()
+        + 2 * buy_pressure.rolling(14).sum() / true_range.rolling(14).sum()
+        + buy_pressure.rolling(28).sum() / true_range.rolling(28).sum()
+    ) / 7)
+    midpoint = (h + l) / 2
+    out["20_awesome_oscillator"] = midpoint.rolling(5).mean() - midpoint.rolling(34).mean()
+    r1, r2, r3, r4 = (c.pct_change(n, fill_method=None) * 100 for n in (10, 15, 20, 30))
+    out["21_kst"] = r1.rolling(10).sum() + 2*r2.rolling(10).sum() + 3*r3.rolling(10).sum() + 4*r4.rolling(15).sum()
+    pc = c.diff(); apc = pc.abs()
+    out["22_tsi"] = safe(100 * ema(ema(pc, 25), 13) / ema(ema(apc, 25), 13))
+    streak = pd.Series(0.0, index=c.index)
+    for i in range(1, len(c)):
+        direction = np.sign(c.iloc[i] - c.iloc[i - 1])
+        prior = streak.iloc[i - 1]
+        streak.iloc[i] = 0 if direction == 0 else direction * (abs(prior) + 1 if np.sign(prior) == direction else 1)
+    def rsi_series(x, n):
+        d = x.diff(); g = d.clip(lower=0).ewm(alpha=1/n, adjust=False, min_periods=n).mean()
+        q = (-d.clip(upper=0)).ewm(alpha=1/n, adjust=False, min_periods=n).mean()
+        return 100 - 100 / (1 + safe(g / q))
+    pct_rank = c.pct_change(fill_method=None).rolling(100).apply(lambda a: 100 * (a[-1] > a[:-1]).mean(), raw=True)
+    out["23_connors_rsi"] = (rsi_series(c, 3) + rsi_series(streak, 2) + pct_rank) / 3
+    sum_gain, sum_loss = gain.rolling(14).sum(), loss.rolling(14).sum()
+    out["24_cmo_14"] = safe(100 * (sum_gain - sum_loss) / (sum_gain + sum_loss))
+
+    # Volatility and channel family (25-36)
+    mid = c.rolling(20).mean(); std = c.rolling(20).std(ddof=0)
+    upper, lower = mid + 2*std, mid - 2*std
+    out["25_bollinger_upper"] = upper
+    out["26_bollinger_lower"] = lower
+    out["27_bollinger_bandwidth"] = safe(100 * (upper - lower) / mid)
+    atr = true_range.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    out["28_atr_14"] = atr
+    out["29_natr_14"] = safe(100 * atr / c)
+    out["30_true_range"] = true_range
+    kel_mid = ema(c, 20)
+    out["31_keltner_upper"] = kel_mid + 2 * atr
+    out["32_keltner_lower"] = kel_mid - 2 * atr
+    out["33_donchian_upper"] = h.rolling(20).max()
+    out["34_donchian_lower"] = l.rolling(20).min()
+    out["35_stddev_20"] = std
+    out["36_historical_volatility"] = np.log(c / c.shift(1)).rolling(20).std(ddof=0) * np.sqrt(252) * 100
+
+    # Directional, stop and cloud family (37-46)
+    up_move, down_move = h.diff(), -l.diff()
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+    plus_di = safe(100 * plus_dm.ewm(alpha=1/14, adjust=False, min_periods=14).mean() / atr)
+    minus_di = safe(100 * minus_dm.ewm(alpha=1/14, adjust=False, min_periods=14).mean() / atr)
+    out["37_adx_14"] = safe(100 * (plus_di - minus_di).abs() / (plus_di + minus_di)).ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    out["38_plus_di"] = plus_di
+    out["39_minus_di"] = minus_di
+    out["40_aroon_up"] = h.rolling(25).apply(lambda a: 100 * (np.argmax(a) + 1) / len(a), raw=True)
+    out["41_aroon_down"] = l.rolling(25).apply(lambda a: 100 * (np.argmin(a) + 1) / len(a), raw=True)
+    out["42_vortex_plus"] = safe((h - l.shift(1)).abs().rolling(14).sum() / true_range.rolling(14).sum())
+    out["43_vortex_minus"] = safe((l - h.shift(1)).abs().rolling(14).sum() / true_range.rolling(14).sum())
+    psar = pd.Series(np.nan, index=c.index)
+    if len(c):
+        bull, af, extreme = True, 0.02, h.iloc[0]
+        psar.iloc[0] = l.iloc[0]
+        for i in range(1, len(c)):
+            candidate = psar.iloc[i-1] + af * (extreme - psar.iloc[i-1])
+            if bull:
+                candidate = min(candidate, l.iloc[i-1], l.iloc[max(i-2, 0)])
+                if l.iloc[i] < candidate: bull, candidate, af, extreme = False, extreme, 0.02, l.iloc[i]
+                elif h.iloc[i] > extreme: extreme, af = h.iloc[i], min(af + 0.02, 0.2)
+            else:
+                candidate = max(candidate, h.iloc[i-1], h.iloc[max(i-2, 0)])
+                if h.iloc[i] > candidate: bull, candidate, af, extreme = True, extreme, 0.02, h.iloc[i]
+                elif l.iloc[i] < extreme: extreme, af = l.iloc[i], min(af + 0.02, 0.2)
+            psar.iloc[i] = candidate
+    out["44_parabolic_sar"] = psar
+    out["45_ichimoku_conversion"] = (h.rolling(9).max() + l.rolling(9).min()) / 2
+    out["46_ichimoku_base"] = (h.rolling(26).max() + l.rolling(26).min()) / 2
+
+    # Volume and money-flow family (47-50)
+    out["47_obv"] = (np.sign(c.diff()).fillna(0) * v).cumsum()
+    raw_money = typical * v; positive = raw_money.where(typical.diff() > 0, 0); negative = raw_money.where(typical.diff() < 0, 0)
+    out["48_mfi_14"] = 100 - 100 / (1 + safe(positive.rolling(14).sum() / negative.rolling(14).sum()))
+    money_flow_multiplier = safe(((c - l) - (h - c)) / (h - l))
+    money_flow_volume = money_flow_multiplier * v
+    out["49_cmf_20"] = safe(money_flow_volume.rolling(20).sum() / v.rolling(20).sum())
+    out["50_accumulation_distribution"] = money_flow_volume.fillna(0).cumsum()
+    assert out.shape[1] == 50
+    return out
+'''
+
 
 # ── Per-notebook bodies ──────────────────────────────────────────────────
 
@@ -266,6 +410,181 @@ def body_03_dhan():
     # order = dhan.place_order(security_id="1333", exchange_segment=dhan.NSE, transaction_type=dhan.BUY,
     #                           quantity=1, order_type=dhan.MARKET, product_type=dhan.INTRA, price=0)""",
     )
+
+
+def build_colab_dhan_notebook():
+    """A restart-safe, top-to-bottom Colab notebook for DhanHQ 2.2."""
+    filename = "colab_dhan_trading_static_ip.ipynb"
+    cells = [
+        md(f"""# DhanHQ on Google Colab with a ServLoci static IP
+
+{colab_badge(filename)}
+
+Run these cells from top to bottom. The notebook installs dependencies before
+enabling the broker-only route, reads credentials from **Colab Secrets**, verifies
+the assigned IPv6, creates a DhanHQ 2.2 client, and performs one read-only API call.
+
+Create these secrets in Colab's key icon before running:
+
+- `STATIC_IP_TOKEN` — the latest `sl_live_...` token from the ServLoci portal
+- `DHAN_CLIENT_ID` — your Dhan client ID
+- `DHAN_ACCESS_TOKEN` — your current Dhan access token
+
+Grant this notebook access to all three secrets. No secret value is printed.
+"""),
+        md("## 1. Clear stale version 0.3.0 notebook state"),
+        code("""import os
+import sys
+
+SMOKE_TEST = "--smoke" in sys.argv  # used only by the automated Colab CLI test
+PROXY_KEYS = (
+    "ALL_PROXY", "all_proxy",
+    "HTTP_PROXY", "http_proxy",
+    "HTTPS_PROXY", "https_proxy",
+)
+
+# A rerun after trading-static-ip 0.3.0 may retain both monkey patches and
+# proxy variables. Undo them before pip contacts pypi.org/simple/*.
+if "servloci" in sys.modules:
+    try:
+        sys.modules["servloci"].unconfigure()
+    except Exception:
+        pass
+
+for key in PROXY_KEYS:
+    if "comm.servloci.in:1080" in os.environ.get(key, ""):
+        os.environ.pop(key, None)
+
+assert not any("comm.servloci.in:1080" in os.environ.get(k, "") for k in PROXY_KEYS)
+print("Clean start: package installation will use Colab's direct connection.")
+"""),
+        md("## 2. Install the fixed SDK and DhanHQ"),
+        code("""import subprocess
+
+subprocess.check_call([
+    sys.executable, "-m", "pip", "install", "-q", "--upgrade",
+    "trading-static-ip==0.3.1", "dhanhq==2.2.0",
+])
+print("Dependencies installed.")
+"""),
+        md("## 3. Load Colab Secrets"),
+        code("""import importlib
+import servloci
+
+# Handles a deliberate top-to-bottom rerun without requiring another runtime restart.
+servloci = importlib.reload(servloci)
+assert servloci.__version__ == "0.3.1", servloci.__version__
+
+if SMOKE_TEST:
+    STATIC_IP_TOKEN = "sl_live_colab_cli_smoke_test"
+    DHAN_CLIENT_ID = "1000000000"
+    DHAN_ACCESS_TOKEN = "dhan_cli_smoke_test"
+else:
+    from google.colab import userdata
+
+    def required_secret(name):
+        value = userdata.get(name)
+        if not value:
+            raise ValueError(f"Missing Colab secret: {name}")
+        return value.strip()
+
+    STATIC_IP_TOKEN = required_secret("STATIC_IP_TOKEN")
+    DHAN_CLIENT_ID = required_secret("DHAN_CLIENT_ID")
+    DHAN_ACCESS_TOKEN = required_secret("DHAN_ACCESS_TOKEN")
+    if not STATIC_IP_TOKEN.startswith("sl_live_"):
+        raise ValueError("STATIC_IP_TOKEN must be the latest sl_live_... portal token")
+
+print("Secrets loaded without displaying their values.")
+"""),
+        md("## 4. Record Colab's direct IP, then enable ServLoci"),
+        code("""import requests
+
+direct_ip = None
+if not SMOKE_TEST:
+    direct_ip = requests.get("https://api.ipify.org", timeout=20).text.strip()
+    print("Direct Colab IP:", direct_ip)
+
+route = servloci.configure(
+    token=STATIC_IP_TOKEN,
+    broker="dhan",
+)
+
+# 0.3.1 patches requests/HTTPX without leaking SOCKS settings to pip subprocesses.
+assert not any("comm.servloci.in:1080" in os.environ.get(k, "") for k in PROXY_KEYS)
+print("ServLoci transport enabled for Dhan; pip remains direct.")
+"""),
+        md("## 5. Verify the assigned static IPv6"),
+        code("""import ipaddress
+
+if SMOKE_TEST:
+    print("Colab CLI smoke mode: live token/IP check skipped.")
+else:
+    static_ip = requests.get("https://api.ipify.org", timeout=20).text.strip()
+    parsed = ipaddress.ip_address(static_ip)
+    assert parsed.version == 6, f"Expected the assigned IPv6, received {static_ip}"
+    assert static_ip != direct_ip, "ServLoci route did not change the observed IP"
+    print("ServLoci static IPv6:", static_ip)
+"""),
+        md("## 6. Create the DhanHQ 2.2 client"),
+        code("""# DhanHQ 2.2 uses DhanContext; older keyword-only examples no longer apply.
+from dhanhq import DhanContext, dhanhq
+
+dhan_context = DhanContext(DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN)
+dhan = dhanhq(dhan_context)
+
+# DhanHQ created its own requests.Session after configure(), so its internal
+# HTTPS calls are transparently routed through the ServLoci static IP.
+assert dhan.dhan_http.session is not None
+print("DhanHQ client ready through ServLoci.")
+"""),
+        md("## 7. Run a safe, read-only Dhan call"),
+        code("""if SMOKE_TEST:
+    print("Colab CLI smoke mode: authenticated Dhan call skipped.")
+else:
+    result = dhan.get_fund_limits()
+    status = result.get("status") if isinstance(result, dict) else None
+    if status != "success":
+        raise RuntimeError(f"Dhan read-only call failed: {result.get('remarks', result)}")
+    print("Dhan read-only call succeeded. Response data is intentionally hidden.")
+"""),
+        md("## 8. Optional order template — dry run only"),
+        code("""order = {
+    "security_id": "1333",       # example only; verify the current instrument ID
+    "exchange_segment": dhan.NSE,
+    "transaction_type": dhan.BUY,
+    "quantity": 1,
+    "order_type": dhan.MARKET,
+    "product_type": dhan.INTRA,
+    "price": 0,
+}
+
+DRY_RUN = True
+if DRY_RUN:
+    print("DRY RUN — no order sent:", order)
+else:
+    raise RuntimeError("Review risk, symbol, quantity, and market status before enabling live orders.")
+"""),
+        md("""## Finished
+
+Your DhanHQ `requests.Session` is now routed through the assigned ServLoci IPv6.
+Keep `DRY_RUN = True` until you have separately validated permissions, instrument
+IDs, quantities, risk limits, and the broker's current order fields.
+
+When you are finished with broker traffic, restore normal transports with:
+
+```python
+servloci.unconfigure()
+```
+"""),
+    ]
+    meta = dict(NB_METADATA)
+    meta["colab"] = {"provenance": [], "name": filename}
+    return {
+        "nbformat": 4,
+        "nbformat_minor": 0,
+        "metadata": meta,
+        "cells": cells,
+    }
 
 
 def body_04_groww():
@@ -706,7 +1025,257 @@ def run_once(spot, capital=500_000, risk_pct=0.02, assumed_max_loss_per_lot=4500
 
 run_once(spot=24000)
 """),
-        md(f"That's the series. Recap: static IP (00) → SDK (01) → broker auth (02-05) → options math (06-10) → live data (11-12) → backtesting (13-14) → risk + execution (15-19).\n\nKeep building at [{SITE}/tools/strategy-builder]({SITE}/tools/strategy-builder), or grab your own static IP at [{SITE}/register]({SITE}/register)."),
+        md(f"That's the core workflow. Recap: static IP (00) → SDK (01) → broker auth (02-05) → options math (06-10) → live data (11-12) → backtesting (13-14) → risk + execution (15-19). Continue with the broker API and indicator learning path in notebooks 20-23.\n\nKeep building at [{SITE}/tools/strategy-builder]({SITE}/tools/strategy-builder), or grab your own static IP at [{SITE}/register]({SITE}/register)."),
+    ]
+
+
+def body_20_broker_api_landscape():
+    return [
+        md("""## Scope and how to read the list
+
+This is a **reviewed catalog of Indian retail brokers with public, first-party API documentation**, checked 12 August 2026. It is not a claim that every SEBI-registered broker exposes a retail API. “ServLoci route” means a maintained broker allowlist exists today; “adapter” means the same OHLCV/indicator pattern works, but the broker origin still needs explicit ServLoci support before order traffic can be proxied.
+
+Broker plans, rate limits, authentication and static-IP rules change. Recheck the linked official source before production use. Never send broker passwords, PINs, TOTP seeds or access tokens to ServLoci."""),
+        md("""## Public broker API inventory
+
+| Broker / API | What the official API exposes | Typical auth | Official source | ServLoci route |
+|---|---|---|---|---|
+| Zerodha Kite Connect | Orders, portfolio, WebSocket quotes, paid historical data | OAuth-like daily request/access token | [Kite Connect](https://zerodha.com/products/api/) | Maintained (`kite`) |
+| Upstox Developer API | Orders, portfolio, market data, sandbox, WebSockets | OAuth 2.0 | [Upstox docs](https://upstox.com/developer/api-documentation) | Maintained (`upstox`) |
+| DhanHQ v2 | Orders, portfolio, quotes, historical data, live feed | Client ID + access token | [DhanHQ docs](https://dhanhq.co/docs/v2/) | Maintained (`dhan`) |
+| FYERS API v3 | Orders, history, data socket and order socket | App ID + OAuth access token | [FYERS support](https://support.fyers.in/portal/en/kb/fyers-api-integrations) | Maintained (`fyers`) |
+| Groww Trading API | Order and market-data APIs with Python/cURL docs | API key/access token flow | [Groww docs](https://groww.in/trade-api/docs) | Maintained (`groww`) |
+| ICICI Direct Breeze | Orders, portfolio, historical data and streaming | API key + secret + session | [Breeze docs](https://api.icicidirect.com/breezeapi/documents/index.html) | Maintained (`icicidirect`) |
+| Kotak Neo API v2 | Orders, portfolio and quotes via official SDK | Consumer key + TOTP/MPIN session | [Kotak Neo SDK](https://github.com/Kotak-Neo/Kotak-neo-api-v2) | Maintained (`kotak`, SOCKS5) |
+| Angel One SmartAPI | Orders, portfolio, quotes, WebSocket and postbacks | API key + client login/TOTP tokens | [SmartAPI docs](https://smartapi.angelone.in/docs) | Adapter; route not yet maintained |
+| Alice Blue ANT | Trading, portfolio and market-data APIs | App/client session | [ANT docs](https://ant.aliceblueonline.com/productdocumentation/) | Adapter; route not yet maintained |
+| 5paisa Xstream | Order management, portfolio and market-data APIs | App credentials + client session | [Xstream docs](https://xstream.5paisa.com/dev-docs/) | Adapter; route not yet maintained |
+| Shoonya / Finvasia | Orders, GTT, portfolio, REST/WebSocket market data | Vendor/app key + user session | [Shoonya docs](https://shoonya.com/api-documentation) | Adapter; route not yet maintained |
+| Flattrade Pi | Orders, GTT/OCO, portfolio, WebSocket, postbacks | API key/secret + access token | [Pi v2 docs](https://pi.flattrade.in/docs) | Adapter; route not yet maintained |
+| SAMCO Trade API v3.2 | Orders, portfolio, market data and WebSocket | OAuth 2.1 or direct session token | [SAMCO docs](https://docs-tradeapi.samco.in/) | Adapter; route not yet maintained |
+| Tradejini API v2 | Orders, chart data, portfolio and WebSockets | OAuth/app access token | [Tradejini docs](https://developer.tradejini.com/docs) | Adapter; route not yet maintained |
+| Motilal Oswal Trading API | Orders, reports, market and historical data | Client/app authentication | [MO API docs](https://invest.motilaloswal.com/moAPI/APIDocumentation/Introduction) | Adapter; route not yet maintained |
+| Sharekhan Trading API | Orders, portfolio and market data | App/OAuth session | [Sharekhan docs](https://www.sharekhan.com/trading-api/documentation) | Adapter; route not yet maintained |
+| Mastertrust REST API | Orders, portfolio, historical/live data, WebSocket | OAuth 2.0 | [Mastertrust docs](https://tradeapi.mastertrust.co.in/) | Adapter; route not yet maintained |
+| Nuvama API Connect | Orders, portfolio, REST data and streaming | OAuth/app session | [Nuvama API Connect](https://www.nuvamawealth.com/api-connect/) | Adapter; route not yet maintained |
+
+“Free API” can still exclude exchange-licensed real-time data, historical depth, account charges, brokerage, cloud egress or an external static IPv4. Compare the exact endpoint and plan you need—not the headline price."""),
+        md("""## Selection checklist
+
+1. Confirm the instruments and exchange segments you trade.
+2. Confirm candle intervals, history depth, corporate-action handling and live-feed entitlement.
+3. Check documented order limits, reconnect behavior, idempotency support, sandbox/paper support and postbacks.
+4. Verify current static-IP and OAuth/2FA policy. From 1 April 2026, Indian retail-algo implementation rules materially affect client-direct API order traffic.
+5. Test rejection, timeout, partial-fill and duplicate-order recovery before measuring latency.
+6. Keep analysis/data reads direct. Route only the broker calls that must originate from the approved static address.
+
+Start with a read-only profile or funds endpoint, then paper/dry-run, then the smallest permitted live order. An API feature table is not a reliability ranking or a recommendation to trade."""),
+    ]
+
+
+def body_21_top_50_indicators():
+    return [
+        md("""## The top 50 used in this course
+
+- **Trend (1–11):** SMA, EMA, WMA, HMA, DEMA, TEMA, VWMA, MACD, MACD signal, PPO, TRIX.
+- **Momentum (12–24):** ROC, Momentum, RSI, Stochastic %K/%D, Williams %R, CCI, Ultimate Oscillator, Awesome Oscillator, KST, TSI, Connors RSI, CMO.
+- **Volatility/channels (25–36):** Bollinger upper/lower/bandwidth, ATR, NATR, True Range, Keltner upper/lower, Donchian upper/lower, standard deviation, historical volatility.
+- **Directional/trend state (37–46):** ADX, +DI, −DI, Aroon up/down, Vortex +/−, Parabolic SAR, Ichimoku conversion/base.
+- **Volume/money flow (47–50):** OBV, MFI, CMF, Accumulation/Distribution.
+
+These are features, not buy/sell advice. Parameters are conventional teaching defaults and must be frozen before a fair backtest."""),
+        code("!pip install -q pandas numpy matplotlib\n" + INDICATOR_ENGINE_SRC),
+        md("## Run all 50 on reproducible demo OHLCV"),
+        code("""rng = np.random.default_rng(7)
+n = 320
+close = pd.Series(22000 + rng.normal(0, 70, n).cumsum())
+demo = pd.DataFrame({
+    "open": close.shift(1).fillna(close.iloc[0]),
+    "high": close + rng.uniform(10, 90, n),
+    "low": close - rng.uniform(10, 90, n),
+    "close": close,
+    "volume": rng.integers(100_000, 900_000, n),
+}, index=pd.date_range("2025-01-01", periods=n, freq="B"))
+
+indicators = compute_top_50(demo)
+print("indicator count:", indicators.shape[1])
+display(indicators.tail(5).T)
+assert indicators.shape[1] == 50
+"""),
+        md("""## Avoid the three common research errors
+
+- **Warm-up leakage:** keep early `NaN` values; do not backfill an indicator with future information.
+- **Same-bar fills:** a signal using a candle close can normally act only on the next tradable event in a bar-based backtest.
+- **Unadjusted data:** splits, bonuses, symbol changes and futures rolls can create fake signals. Use broker/exchange metadata and document adjustments.
+
+For production, compare a sample against a second implementation. Small differences can come from Wilder versus EMA smoothing, population versus sample deviation, and candle/session boundaries."""),
+    ]
+
+
+def body_22_broker_indicator_pipeline():
+    return [
+        md("""## One normalized shape for every broker
+
+Broker payloads differ, but indicators need only `timestamp, open, high, low, close, volume`. Keep a small fetch adapter per broker, normalize immediately, and make the rest of the research code broker-neutral. Market-data reads stay direct; create the ServLoci-routed SDK client only at the order boundary."""),
+        code("!pip install -q pandas numpy requests\n" + INDICATOR_ENGINE_SRC),
+        code("""def normalize_ohlcv(records, mapping):
+    raw = pd.DataFrame(records).rename(columns={source: target for target, source in mapping.items()})
+    needed = ["timestamp", "open", "high", "low", "close", "volume"]
+    missing = set(needed).difference(raw.columns)
+    if missing:
+        raise ValueError(f"adapter did not provide: {sorted(missing)}")
+    raw["timestamp"] = pd.to_datetime(raw["timestamp"], utc=True)
+    bars = raw.set_index("timestamp")[["open", "high", "low", "close", "volume"]].sort_index()
+    return bars.apply(pd.to_numeric, errors="raise")
+
+# Generic example: replace this callback with a broker SDK/API fetch.
+def demo_fetch():
+    rng = np.random.default_rng(12); n = 320
+    close = pd.Series(24000 + rng.normal(0, 60, n).cumsum())
+    return pd.DataFrame({
+        "time": pd.date_range("2025-01-01", periods=n, freq="B", tz="Asia/Kolkata"),
+        "o": close.shift(1).fillna(close.iloc[0]), "h": close + 50,
+        "l": close - 50, "c": close, "v": rng.integers(100000, 800000, n),
+    }).to_dict("records")
+
+bars = normalize_ohlcv(demo_fetch(), {
+    "timestamp": "time", "open": "o", "high": "h", "low": "l", "close": "c", "volume": "v"
+})
+features = compute_top_50(bars)
+dataset = bars.join(features)
+display(dataset.tail(3))
+"""),
+        md("## Concrete broker fetch adapters"),
+        code("""# Zerodha Kite (direct read; create `kite` with its normal authenticated flow)
+def fetch_kite_daily(kite, instrument_token, start, end):
+    rows = kite.historical_data(instrument_token, start, end, "day", continuous=False, oi=False)
+    return normalize_ohlcv(rows, {
+        "timestamp": "date", "open": "open", "high": "high", "low": "low", "close": "close", "volume": "volume"
+    })
+
+# FYERS v3 (direct read; `fyers.history` returns candles as [epoch,o,h,l,c,v])
+def fetch_fyers_daily(fyers, symbol, start_epoch, end_epoch):
+    response = fyers.history(data={"symbol": symbol, "resolution": "D", "date_format": "0",
+                                   "range_from": str(start_epoch), "range_to": str(end_epoch), "cont_flag": "1"})
+    rows = [dict(zip(["timestamp", "open", "high", "low", "close", "volume"], row))
+            for row in response.get("candles", [])]
+    return normalize_ohlcv(rows, {name: name for name in rows[0]} if rows else {
+        "timestamp": "timestamp", "open": "open", "high": "high", "low": "low", "close": "close", "volume": "volume"
+    })
+
+# DhanHQ v2 REST (direct read). Security ID and segment come from Dhan's instrument master.
+def fetch_dhan_daily(client_id, access_token, security_id, from_date, to_date):
+    import requests
+    response = requests.post("https://api.dhan.co/v2/charts/historical", headers={
+        "access-token": access_token, "client-id": client_id, "Content-Type": "application/json"
+    }, json={"securityId": str(security_id), "exchangeSegment": "IDX_I", "instrument": "INDEX",
+             "expiryCode": 0, "oi": False, "fromDate": from_date, "toDate": to_date}, timeout=30)
+    response.raise_for_status(); payload = response.json()
+    rows = [dict(zip(["timestamp", "open", "high", "low", "close", "volume"], values))
+            for values in zip(payload["timestamp"], payload["open"], payload["high"], payload["low"], payload["close"], payload["volume"])]
+    return normalize_ohlcv(rows, {k: k for k in ("timestamp", "open", "high", "low", "close", "volume")})
+"""),
+        md("""For Upstox, Groww, Breeze, Kotak Neo and every broker in notebook 20, implement only the fetch callback using that broker’s current SDK, then pass its records through `normalize_ohlcv()` and `compute_top_50()`. Keeping this boundary small makes schema changes visible and testable.
+
+Cache raw candles with broker, symbol, interval, timezone, fetch time and adjustment policy. Do not silently mix feeds: two vendors can close the same candle differently because of session and timestamp rules."""),
+    ]
+
+
+def body_23_alerts_and_servloci():
+    return [
+        md("""## Alert first, order later
+
+This notebook turns completed candles into stateful alerts. It de-duplicates repeated signals, includes the observed values, and defaults to console output. Telegram and generic webhook sinks are opt-in. A separate, dry-run order boundary shows where ServLoci belongs."""),
+        code("!pip install -q pandas numpy requests\n" + INDICATOR_ENGINE_SRC),
+        code("""from dataclasses import dataclass
+from datetime import datetime, timezone
+import json, os, time, requests
+
+@dataclass(frozen=True)
+class Alert:
+    key: str
+    symbol: str
+    side: str
+    message: str
+    observed_at: str
+
+class AlertRouter:
+    def __init__(self, cooldown_seconds=900):
+        self.cooldown = cooldown_seconds
+        self.sent_at = {}
+
+    def should_send(self, alert):
+        now = time.time(); previous = self.sent_at.get(alert.key, 0)
+        if now - previous < self.cooldown:
+            return False
+        self.sent_at[alert.key] = now
+        return True
+
+    def console(self, alert):
+        print(json.dumps(alert.__dict__, indent=2))
+
+    def webhook(self, alert, url):
+        response = requests.post(url, json={"text": alert.message, "alert": alert.__dict__}, timeout=10)
+        response.raise_for_status()
+
+    def telegram(self, alert, bot_token, chat_id):
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        response = requests.post(url, json={"chat_id": chat_id, "text": alert.message}, timeout=10)
+        response.raise_for_status()
+
+def closed_candle_signal(symbol, bars, indicators):
+    # Call only after the broker confirms the candle is closed.
+    latest, previous = indicators.iloc[-1], indicators.iloc[-2]
+    price = float(bars["close"].iloc[-1])
+    crossed_up = previous["08_macd"] <= previous["09_macd_signal"] and latest["08_macd"] > latest["09_macd_signal"]
+    risk_ok = 45 <= latest["14_rsi_14"] <= 70 and latest["37_adx_14"] >= 20
+    if not (crossed_up and risk_ok):
+        return None
+    when = bars.index[-1].isoformat()
+    return Alert(key=f"{symbol}:macd-up:{when}", symbol=symbol, side="BUY_WATCH",
+                 message=f"{symbol}: MACD crossed up; close={price:.2f}, RSI={latest['14_rsi_14']:.1f}, ADX={latest['37_adx_14']:.1f}",
+                 observed_at=when)
+"""),
+        code("""# Reproducible dry run. Replace `bars` with notebook 22's broker adapter output.
+rng = np.random.default_rng(99); n = 340
+close = pd.Series(20000 + np.r_[rng.normal(-3, 30, 300), rng.normal(25, 20, 40)].cumsum())
+bars = pd.DataFrame({"open": close.shift().fillna(close.iloc[0]), "high": close+35,
+                     "low": close-35, "close": close, "volume": rng.integers(100000, 900000, n)},
+                    index=pd.date_range("2025-01-01", periods=n, freq="15min", tz="Asia/Kolkata"))
+indicators = compute_top_50(bars)
+alert = closed_candle_signal("NIFTY", bars, indicators)
+router = AlertRouter()
+if alert and router.should_send(alert):
+    router.console(alert)
+    if os.getenv("ALERT_WEBHOOK_URL"):
+        router.webhook(alert, os.environ["ALERT_WEBHOOK_URL"])
+    if os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID"):
+        router.telegram(alert, os.environ["TELEGRAM_BOT_TOKEN"], os.environ["TELEGRAM_CHAT_ID"])
+else:
+    print("No new completed-candle alert. This is a valid outcome.")
+"""),
+        md("## Optional ServLoci order boundary (dry-run by default)"),
+        code("""DRY_RUN = True
+
+def dispatch_after_risk_checks(alert, quantity, max_quantity=1):
+    if alert is None: return None
+    if quantity < 1 or quantity > max_quantity: raise ValueError("quantity rejected by local risk gate")
+    intent = {"symbol": alert.symbol, "side": "BUY", "quantity": quantity,
+              "client_order_id": alert.key, "signal_time": alert.observed_at}
+    if DRY_RUN:
+        print("DRY RUN — order intent not sent:", intent)
+        return intent
+
+    # Configure before constructing the supported broker SDK client:
+    # from servloci import configure
+    # configure(token=os.environ["STATIC_IP_TOKEN"], broker=os.environ["BROKER"])
+    # broker = build_current_broker_client_from_private_secrets()
+    # return broker.place_order(... current broker fields ...)
+    raise RuntimeError("Wire one reviewed broker adapter before disabling DRY_RUN")
+
+dispatch_after_risk_checks(alert, quantity=1)
+"""),
+        md("""Production alerts should persist de-duplication state outside the notebook, retry with bounded backoff, record delivery responses and expose a heartbeat/no-data alert. The order worker should independently re-check candle freshness, position, funds/margin, market session, maximum loss, quantity and the idempotency key. An alert is evidence to review—not proof of a profitable trade."""),
     ]
 
 
@@ -733,6 +1302,10 @@ NOTEBOOKS = [
     {"filename": "17_paper_trading_loop.ipynb", "title": "Paper Trading Loop", "subtitle": "An SMA-crossover signal tracked as simulated paper trades.", "body": body_17_paper_trading},
     {"filename": "18_signal_to_order_pipeline.ipynb", "title": "Signal-to-Order Pipeline", "subtitle": "Poll a signal source and dry-run dispatch to an OMS.", "body": body_18_signal_pipeline},
     {"filename": "19_capstone_end_to_end_algo_bot.ipynb", "title": "Capstone: End-to-End Algo Bot", "subtitle": "SDK + strategy template + risk sizing + dry-run OMS dispatch, combined.", "body": body_19_capstone},
+    {"filename": "20_indian_broker_api_landscape.ipynb", "title": "Indian Broker API Landscape", "subtitle": "Reviewed first-party API catalog, integration surface, static-IP concerns and selection checklist.", "body": body_20_broker_api_landscape},
+    {"filename": "21_top_50_technical_indicators.ipynb", "title": "Top 50 Technical Indicators", "subtitle": "Compute 50 trend, momentum, volatility, directional and volume indicators without a TA dependency.", "body": body_21_top_50_indicators},
+    {"filename": "22_broker_data_indicator_pipeline.ipynb", "title": "Broker Data to Indicator Pipeline", "subtitle": "Normalize broker OHLCV, compute all 50 indicators, and keep reads separate from routed order calls.", "body": body_22_broker_indicator_pipeline},
+    {"filename": "23_alerts_and_servloci_dispatch.ipynb", "title": "Alerts and ServLoci Dispatch", "subtitle": "Generate de-duplicated alerts and pass reviewed intents to a dry-run ServLoci order boundary.", "body": body_23_alerts_and_servloci},
 ]
 
 NB_METADATA = {
@@ -767,6 +1340,13 @@ def main():
             json.dump(nb, f, indent=1)
             f.write("\n")
         print("wrote", entry["filename"])
+
+    standalone = build_colab_dhan_notebook()
+    standalone_path = os.path.join(OUT_DIR, "colab_dhan_trading_static_ip.ipynb")
+    with open(standalone_path, "w") as f:
+        json.dump(standalone, f, indent=1)
+        f.write("\n")
+    print("wrote", os.path.basename(standalone_path))
 
 
 if __name__ == "__main__":

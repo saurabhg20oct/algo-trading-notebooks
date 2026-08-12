@@ -1,12 +1,27 @@
 # ServLoci Colab Notebook Series
 
-Twenty-one runnable Google Colab notebooks covering the [ServLoci](https://comm.servloci.in)
-Python SDK, options-pricing math, strategy construction, and a full algo-trading
-workflow — from claiming a static IP through a capstone dry-run bot.
+A twenty-four-part Google Colab series covering the [ServLoci](https://comm.servloci.in)
+Python SDK, options-pricing math, strategy construction, a full algo-trading
+workflow, 18 documented Indian broker APIs, 50 technical indicators and alert
+delivery — plus a standalone, current DhanHQ quickstart.
 
 Every notebook is self-contained: open it in Colab, run top to bottom. Broker
 and live-data notebooks fall back to a safe **demo mode** when no credentials
 are set, so the whole series runs cleanly with zero setup.
+
+## Where to run the workload
+
+Use Colab for interactive analytics, indicators and backtests, then use
+ServLoci as the stable broker-facing exit for approved order calls. A small
+1 GB or shared-CPU VPS can run out of memory or become unresponsive under
+heavy pandas, Jupyter, backtesting or multi-feed workloads; free and low-cost
+providers may also apply burst or fair-use limits.
+
+StaticIP is the network lane, not another compute server. Install
+\`trading-static-ip\`, call \`configure()\` before constructing the broker SDK,
+and keep unrelated notebook traffic direct. Colab runtimes can disconnect and
+their limits vary, so move unattended 24x7 strategies to persistent managed
+compute while keeping the same ServLoci exit route.
 
 ## Get your static IP
 
@@ -15,9 +30,11 @@ Each notebook's setup cell explains this, but in short:
 1. Sign up free at [comm.servloci.in/register](https://comm.servloci.in/register)
    (or [comm.servloci.in/auth/google?free=1](https://comm.servloci.in/auth/google?free=1)
    for an instant Google-login trial).
-2. Generate the single `sl_live_…` token on the landing page or in your portal.
-3. Store it as `STATIC_IP_TOKEN` in Colab Secrets. Your broker credentials stay
-   in separate secrets and are never sent to ServLoci.
+2. Your `api_key` / `api_secret` pair appears in your portal at
+   [comm.servloci.in/user](https://comm.servloci.in/user).
+3. Set them as Colab secrets or environment variables (`SERVLOCI_API_KEY`,
+   `SERVLOCI_API_SECRET`) before running — or leave them unset to explore in
+   demo mode.
 
 Full docs: [comm.servloci.in/docs](https://comm.servloci.in/docs). SDK source
 served live at [comm.servloci.in/sdk/servloci.py](https://comm.servloci.in/sdk/servloci.py).
@@ -25,9 +42,16 @@ Rendered (read-only) output for every notebook is served statically at
 [comm.servloci.in/notebooks/](https://comm.servloci.in/notebooks/) — no Colab
 account needed just to read them.
 
-## Notebooks
+## Complete Dhan Colab quickstart
 
-**Fastest Dhan setup:** [open `colab_dhan_trading_static_ip.ipynb` in Google Colab](https://colab.research.google.com/github/ivikasavnish/algo-trading-notebooks/blob/main/notebooks/colab_dhan_trading_static_ip.ipynb). It installs pinned versions, reads secrets with `google.colab.userdata`, verifies static egress, creates a DhanHQ 2.2 client, and keeps order placement in dry-run mode.
+Use [colab_dhan_trading_static_ip.ipynb](colab_dhan_trading_static_ip.ipynb)
+for the current one-token flow with `trading-static-ip==0.3.1` and DhanHQ 2.2.
+It clears stale 0.3.0 proxy state before installation, reads credentials from
+Colab Secrets, verifies the assigned IPv6, initializes the current
+`DhanContext` API, and performs a read-only account call before showing a
+dry-run order payload.
+
+## Notebooks
 
 | # | Notebook | What it covers |
 |---|----------|-----------------|
@@ -51,6 +75,18 @@ account needed just to read them.
 | 17 | [Paper Trading Loop](17_paper_trading_loop.ipynb) | An SMA-crossover signal tracked as simulated paper trades. |
 | 18 | [Signal-to-Order Pipeline](18_signal_to_order_pipeline.ipynb) | Poll a signal source and dry-run dispatch to an OMS. |
 | 19 | [Capstone: End-to-End Algo Bot](19_capstone_end_to_end_algo_bot.ipynb) | SDK + strategy template + risk sizing + dry-run OMS dispatch, combined. |
+| 20 | [Indian Broker API Landscape](20_indian_broker_api_landscape.ipynb) | 18 public, first-party Indian broker API sources, capabilities, auth and ServLoci support status. |
+| 21 | [Top 50 Technical Indicators](21_top_50_technical_indicators.ipynb) | Dependency-light implementations of 50 trend, momentum, volatility, directional and volume indicators. |
+| 22 | [Broker Data to Indicator Pipeline](22_broker_data_indicator_pipeline.ipynb) | Normalize broker candles once and compute the full indicator set. |
+| 23 | [Alerts and ServLoci Dispatch](23_alerts_and_servloci_dispatch.ipynb) | De-duplicated console/webhook/Telegram alerts with a dry-run order boundary. |
+
+## Indicator learning path
+
+Start at notebook 20 to compare broker surfaces, compute and inspect the 50
+indicators in notebook 21, plug broker candles into the normalized pipeline in
+notebook 22, then add stateful alerts and a risk-gated ServLoci dispatch boundary
+in notebook 23. Market-data reads remain direct; only approved broker order calls
+need the stable ServLoci egress.
 
 ## Try it live
 
@@ -62,7 +98,7 @@ same payoff/breakeven math, same strategy templates.
 
 This series lives at
 [github.com/ivikasavnish/algo-trading-notebooks](https://github.com/ivikasavnish/algo-trading-notebooks)
-(kept separate from the main app repo so the collection can grow past 20
+(kept separate from the main app repo so the collection can grow
 without dragging app code along). Each notebook's "Open in Colab" badge
 points there. `generate_notebooks.py`'s `GITHUB_REPO` constant controls the
 badge target — update it and rerun the generator if the notebooks ever move
