@@ -1,13 +1,44 @@
 # ServLoci Colab Notebook Series
 
-A twenty-four-part Google Colab series covering the [ServLoci](https://comm.servloci.in)
-Python SDK, options-pricing math, strategy construction, a full algo-trading
-workflow, 18 documented Indian broker APIs, 50 technical indicators and alert
-delivery — plus a standalone, current DhanHQ quickstart.
+A thirty-five-part Google Colab series: an 11-chapter **Stock Market School**
+that runs on real `yfinance` data with zero signup (24-34), plus the original
+24-part ServLoci track covering the Python SDK, options-pricing math, strategy
+construction, a full algo-trading workflow, 18 documented Indian broker APIs,
+50 technical indicators and alert delivery (00-23) — plus a standalone,
+current DhanHQ quickstart.
 
 Every notebook is self-contained: open it in Colab, run top to bottom. Broker
 and live-data notebooks fall back to a safe **demo mode** when no credentials
-are set, so the whole series runs cleanly with zero setup.
+are set, so the whole series runs cleanly with zero setup. Chapters 24-34
+need nothing but `pip install yfinance` — no ServLoci account, no broker.
+
+## Stock Market School (24-34) — start here
+
+Most free stock-market courses are theory-only (read a module, take a quiz,
+no code). Most free algo-trading courses skip fundamentals and treat
+technical indicators as gospel instead of testing them. Backtesting content
+almost universally *mentions* lookahead bias and overfitting without ever
+*showing* them break a strategy, and ignores real transaction costs. Trading
+psychology is taught as philosophy, never as a quantified P&L cost.
+
+This track is built to close those specific gaps, using real data pulled live
+via [`yfinance`](https://pypi.org/project/yfinance/) — NSE (`RELIANCE.NS`),
+an index (`^NSEI`), and a US comparison (`AAPL`) — computed and simulated in
+front of you, not asserted:
+
+| # | Notebook | What it covers |
+|---|----------|-----------------|
+| 24 | [Reading the Market with yfinance](24_reading_the_market_with_yfinance.ipynb) | Real OHLCV, Adj Close vs Close, dividends/splits, T+1 settlement — no broker account. |
+| 25 | [Returns, Volatility & the Numbers Courses Skip](25_returns_volatility_and_risk_metrics.ipynb) | Log returns, annualized volatility, Sharpe, Sortino, max drawdown — and a live cherry-picking demo. |
+| 26 | [Fundamental Analysis with Real Filings](26_fundamental_analysis_with_yfinance.ipynb) | P/E, market cap, debt/equity, revenue growth — Reliance vs Apple, side by side. |
+| 27 | [Technical Indicators, Tested Honestly](27_technical_indicators_tested_honestly.ipynb) | The 50-indicator engine run on real data, with forward-return correlation instead of folklore. |
+| 28 | [Options, Priced Against Reality](28_options_priced_against_reality.ipynb) | Black-Scholes and the Greeks anchored to a real fetched spot and real historical volatility. |
+| 29 | [Backtesting Without Fooling Yourself](29_backtesting_without_fooling_yourself.ipynb) | Lookahead bias and overfitting demonstrated in code, plus real transaction costs. |
+| 30 | [Position Sizing, Risk of Ruin & Trading Psychology](30_position_sizing_and_trading_psychology.ipynb) | Monte Carlo equity curves on real volatility, and the simulated cost of a psychology-driven mistake. |
+| 31 | [Capstone: Build Your Own Strategy End to End](31_capstone_stock_market_school.ipynb) | Every chapter above, composed into one real-ticker strategy walkthrough. |
+| 32 | [Stock Correlation, Clusters and Pairs](32_stock_correlation_and_pairs.ipynb) | Live-basket heatmap, rolling correlation vs Nifty, and why a tight pair is not a hedge. |
+| 33 | [Return Prediction Baselines](33_return_prediction_baselines.ipynb) | Linear + forest vs a zero-return naive baseline — the honest rewrite of copied LSTM notebooks. |
+| 34 | [Portfolio Analytics](34_portfolio_analytics.ipynb) | Equal-weight vs inverse-vol vs in-sample max Sharpe, Monte Carlo frontier, equity curves. |
 
 ## Where to run the workload
 
@@ -51,7 +82,7 @@ Colab Secrets, verifies the assigned IPv6, initializes the current
 `DhanContext` API, and performs a read-only account call before showing a
 dry-run order payload.
 
-## Notebooks
+## ServLoci broker-integration track (00-23)
 
 | # | Notebook | What it covers |
 |---|----------|-----------------|
@@ -76,7 +107,7 @@ dry-run order payload.
 | 18 | [Signal-to-Order Pipeline](18_signal_to_order_pipeline.ipynb) | Poll a signal source and dry-run dispatch to an OMS. |
 | 19 | [Capstone: End-to-End Algo Bot](19_capstone_end_to_end_algo_bot.ipynb) | SDK + strategy template + risk sizing + dry-run OMS dispatch, combined. |
 | 20 | [Indian Broker API Landscape](20_indian_broker_api_landscape.ipynb) | 18 public, first-party Indian broker API sources, capabilities, auth and ServLoci support status. |
-| 21 | [Top 50 Technical Indicators](21_top_50_technical_indicators.ipynb) | Dependency-light implementations of 50 trend, momentum, volatility, directional and volume indicators. |
+| 21 | [Top 50 Technical Indicators](21_top_50_technical_indicators.ipynb) | Pick a live ticker, compute 50 indicators, then walk the textbook scenarios and their 10-day aftermath on that name. |
 | 22 | [Broker Data to Indicator Pipeline](22_broker_data_indicator_pipeline.ipynb) | Normalize broker candles once and compute the full indicator set. |
 | 23 | [Alerts and ServLoci Dispatch](23_alerts_and_servloci_dispatch.ipynb) | De-duplicated console/webhook/Telegram alerts with a dry-run order boundary. |
 

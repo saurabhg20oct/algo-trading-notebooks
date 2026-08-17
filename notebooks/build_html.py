@@ -54,6 +54,7 @@ CATEGORIES = [
     ("Backtesting", (13, 14)),
     ("Risk & execution", (15, 19)),
     ("Broker APIs & indicators", (20, 23)),
+    ("Stock Market School (yfinance, no signup)", (24, 34)),
 ]
 
 
@@ -175,7 +176,7 @@ def build():
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ServLoci Colab Notebook Series</title>
-<meta name="description" content="A 24-part algo-trading course: Indian broker APIs, 50 technical indicators, alerts, backtesting and ServLoci static-IP dispatch.">
+<meta name="description" content="A 35-part stock market and algo-trading course: real yfinance data and simulation, options math, 50 technical indicators, correlation, prediction baselines, portfolio analytics, backtesting, risk management and Indian broker APIs.">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://comm.servloci.in/notebooks/">
 <style>{READER_CSS}</style>
@@ -185,9 +186,19 @@ def build():
     <nav class="sidepanel">
       <a class="back" href="https://comm.servloci.in">&larr; comm.servloci.in</a>
       <h1>Notebook series</h1>
-      <p class="lead">24-part course + complete Dhan quickstart. Pick one — it loads on the right.</p>
+      <p class="lead">35-part course + complete Dhan quickstart. Pick one — it loads on the right.</p>
       <div class="learning">
-        <h2>New learning path</h2>
+        <h2>Start here — no signup needed</h2>
+        <a href="/notebooks/24_reading_the_market_with_yfinance.html">1. Read real market data<span>yfinance, no broker account</span></a>
+        <a href="/notebooks/25_returns_volatility_and_risk_metrics.html">2. Returns, vol, Sharpe, drawdown<span>The numbers courses skip</span></a>
+        <a href="/notebooks/29_backtesting_without_fooling_yourself.html">3. Backtest without fooling yourself<span>Lookahead bias &amp; real costs</span></a>
+        <a href="/notebooks/31_capstone_stock_market_school.html">4. Capstone: your own strategy<span>Real tickers, start to finish</span></a>
+        <a href="/notebooks/32_stock_correlation_and_pairs.html">5. Correlation and pairs<span>Heatmap, rolling corr, not a hedge</span></a>
+        <a href="/notebooks/33_return_prediction_baselines.html">6. Prediction vs naive<span>Beat zero-return first</span></a>
+        <a href="/notebooks/34_portfolio_analytics.html">7. Portfolio analytics<span>Weights, frontier, drawdown</span></a>
+      </div>
+      <div class="learning">
+        <h2>Broker-integration learning path</h2>
         <a href="/notebooks/20_indian_broker_api_landscape.html">1. Compare broker APIs<span>18 first-party API sources</span></a>
         <a href="/notebooks/21_top_50_technical_indicators.html">2. Compute 50 indicators<span>One dependency-light engine</span></a>
         <a href="/notebooks/22_broker_data_indicator_pipeline.html">3. Connect broker candles<span>Normalize once, reuse everywhere</span></a>

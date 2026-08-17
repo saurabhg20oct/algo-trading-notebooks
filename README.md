@@ -1,14 +1,9 @@
 # algo-trading-notebooks
 
-ServLoci's 24-part Colab course plus a standalone Dhan quickstart — see
-[`notebooks/README.md`](notebooks/README.md) for the full index. It covers
-18 documented Indian broker APIs, 50 technical indicators, normalized broker
-candles, alerts, risk checks and static-IP order dispatch through
-[comm.servloci.in](https://comm.servloci.in).
+ServLoci Colab notebook series (35 parts + Dhan quickstart) — see
+[`notebooks/README.md`](notebooks/README.md) for the full index.
 
-Quick start: [open the tested Dhan + trading-static-ip notebook in Google Colab](https://colab.research.google.com/github/ivikasavnish/algo-trading-notebooks/blob/main/notebooks/colab_dhan_trading_static_ip.ipynb).
-
-New learning path: [compare broker APIs](notebooks/20_indian_broker_api_landscape.ipynb)
-→ [compute 50 indicators](notebooks/21_top_50_technical_indicators.ipynb)
-→ [connect broker candles](notebooks/22_broker_data_indicator_pipeline.ipynb)
-→ [generate alerts and dry-run dispatch](notebooks/23_alerts_and_servloci_dispatch.ipynb).
+Open any notebook in Colab from the badge at the top of the file, or browse
+the rendered copies at [comm.servloci.in/notebooks](https://comm.servloci.in/notebooks/).
+Built to run on public `yfinance` data (chapters 21, 24–34) or with a
+dedicated static IPv6 + SOCKS5 proxy from [comm.servloci.in](https://comm.servloci.in).
