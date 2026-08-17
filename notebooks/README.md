@@ -1,7 +1,7 @@
 # ServLoci Colab Notebook Series
 
-A thirty-five-part Google Colab series: an 11-chapter **Stock Market School**
-that runs on real `yfinance` data with zero signup (24-34), plus the original
+A thirty-six-part Google Colab series: a 12-chapter **Stock Market School**
+that runs on real `yfinance` data with zero signup (24-35), plus the original
 24-part ServLoci track covering the Python SDK, options-pricing math, strategy
 construction, a full algo-trading workflow, 18 documented Indian broker APIs,
 50 technical indicators and alert delivery (00-23) — plus a standalone,
@@ -9,10 +9,11 @@ current DhanHQ quickstart.
 
 Every notebook is self-contained: open it in Colab, run top to bottom. Broker
 and live-data notebooks fall back to a safe **demo mode** when no credentials
-are set, so the whole series runs cleanly with zero setup. Chapters 24-34
-need nothing but `pip install yfinance` — no ServLoci account, no broker.
+are set, so the whole series runs cleanly with zero setup. Chapters 24-35
+need nothing but `pip install yfinance` (35 also uses Prophet and optional
+Google Drive) — no ServLoci account, no broker.
 
-## Stock Market School (24-34) — start here
+## Stock Market School (24-35) — start here
 
 Most free stock-market courses are theory-only (read a module, take a quiz,
 no code). Most free algo-trading courses skip fundamentals and treat
@@ -39,6 +40,7 @@ front of you, not asserted:
 | 32 | [Stock Correlation, Clusters and Pairs](32_stock_correlation_and_pairs.ipynb) | Live-basket heatmap, rolling correlation vs Nifty, and why a tight pair is not a hedge. |
 | 33 | [Return Prediction Baselines](33_return_prediction_baselines.ipynb) | Linear + forest vs a zero-return naive baseline — the honest rewrite of copied LSTM notebooks. |
 | 34 | [Portfolio Analytics](34_portfolio_analytics.ipynb) | Equal-weight vs inverse-vol vs in-sample max Sharpe, Monte Carlo frontier, equity curves. |
+| 35 | [Prophet, Drive Lab & Three Projectors](35_prophet_drive_fundamentals_projectors.ipynb) | yfinance + Google Drive: fundamental/technical scorecards, Prophet fan, analyst target, vol cone. |
 
 ## Where to run the workload
 

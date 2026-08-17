@@ -2021,7 +2021,7 @@ dispatch_after_risk_checks(alert, quantity=1)
 
 
 # ── Stock Market School (yfinance, no broker account needed) ──────────────
-# Chapters 24-34. Each uses yfinance_setup_cells() instead of setup_cells()
+# Chapters 24-35. 24-34 use yfinance_setup_cells(); 35 adds Drive + Prophet.
 # (see NOTEBOOKS entries below) — no ServLoci signup required to run these.
 
 def body_24_reading_the_market():
@@ -3018,6 +3018,446 @@ Back to indicators: notebook 21's scenarios are single-name stories. A portfolio
     ]
 
 
+def yfinance_drive_setup_cells():
+    text = """!pip install -q yfinance prophet matplotlib
+
+import os
+from pathlib import Path
+import yfinance as yf
+import pandas as pd
+import numpy as np
+
+# Colab: attach Google Drive so forecasts, scorecards and charts survive
+# the runtime. Local Jupyter: fall back to ./servloci-stock-lab in cwd.
+def attach_store():
+    try:
+        from google.colab import drive  # type: ignore
+        mount = Path("/content/drive")
+        if not (mount / "MyDrive").exists():
+            drive.mount("/content/drive")
+        store = mount / "MyDrive" / "servloci-stock-lab"
+        print("Google Drive attached:", store)
+    except ImportError:
+        store = Path("./servloci-stock-lab").resolve()
+        print("Not Colab — writing artifacts locally:", store)
+    store.mkdir(parents=True, exist_ok=True)
+    return store
+
+STORE = attach_store()
+NSE_TICKER = "RELIANCE.NS"
+US_TICKER = "AAPL"
+INDEX_TICKER = "^NSEI"
+TICKER = NSE_TICKER
+PERIOD = "5y"
+HORIZON_DAYS = 90  # calendar/business days for projectors
+print("yfinance", yf.__version__)
+print("artifact folder:", STORE)
+"""
+    return [md("## Setup — yfinance + Google Drive + Prophet"), code(text)]
+
+
+def body_35_prophet_drive_lab():
+    return [
+        md("""## One ticker, three projectors, a folder that survives Colab
+
+Kaggle "Prophet stock forecast" notebooks usually: `drive.mount`, `yfinance.download`, `Prophet().fit`, a fan chart, done. The fan looks like a view of the future. It is a **smoother with seasonality**, plus a confidence band that is not a trading interval.
+
+This chapter keeps the useful Colab pattern — live `yfinance`, optional **Google Drive** persistence, **Prophet** as one projector — and puts it next to the things those notebooks skip:
+
+- a **fundamental scorecard** (P/E, margins, leverage, growth, cash)
+- a **technical scorecard** from the same 50-indicator engine as notebook 21
+- **three projectors on one chart:** Prophet, the Street's analyst target (Yahoo), and a drift-and-vol cone
+- a **holdout** so Prophet has to beat "price unchanged" before you screenshot the fan
+
+Artifacts land in `MyDrive/servloci-stock-lab/<TICKER>/` on Colab, or `./servloci-stock-lab/` locally. Re-run the selector and everything overwrites in place.
+
+Related reading (do not paste blindly): Facebook/Meta [Prophet docs](https://facebook.github.io/prophet/), typical Colab+Drive+yfinance+Prophet copies, notebook 26 (fundamentals), 21 (indicators), 33 (why price overlays lie)."""),
+        code("!pip install -q pandas numpy matplotlib ipywidgets\n" + INDICATOR_ENGINE_SRC),
+        md("""## Stock selector
+
+Same Yahoo rules as the rest of the school: `RELIANCE.NS`, `AAPL`, `^NSEI`. Change the dropdown or type a custom symbol, then run the cells below."""),
+        code("""from IPython.display import display, Markdown
+import matplotlib.pyplot as plt
+import json
+
+STOCK_UNIVERSE = {
+    "Nifty 50": "^NSEI",
+    "Bank Nifty": "^NSEBANK",
+    "Sensex": "^BSESN",
+    "Reliance": "RELIANCE.NS",
+    "TCS": "TCS.NS",
+    "HDFC Bank": "HDFCBANK.NS",
+    "Infosys": "INFY.NS",
+    "ICICI Bank": "ICICIBANK.NS",
+    "Bharti Airtel": "BHARTIARTL.NS",
+    "SBI": "SBIN.NS",
+    "ITC": "ITC.NS",
+    "Apple": "AAPL",
+    "Microsoft": "MSFT",
+    "NVIDIA": "NVDA",
+    "S&P 500": "^GSPC",
+}
+
+def load_ohlcv(ticker, period="5y"):
+    raw = yf.download(
+        ticker, period=period, interval="1d",
+        auto_adjust=True, progress=False, multi_level_index=False,
+    )
+    if raw is None or raw.empty:
+        raise ValueError(f"yfinance returned no rows for {ticker!r}")
+    bars = raw.rename(columns={c: str(c).lower() for c in raw.columns})
+    needed = ["open", "high", "low", "close", "volume"]
+    missing = [c for c in needed if c not in bars.columns]
+    if missing:
+        raise ValueError(f"{ticker}: missing {missing}")
+    bars = bars[needed].apply(pd.to_numeric, errors="coerce").dropna(how="any")
+    if len(bars) < 120:
+        raise ValueError(f"{ticker}: only {len(bars)} bars — need ~120+ for Prophet + indicators")
+    return bars
+
+def ticker_dir(ticker):
+    safe = ticker.replace("^", "idx-").replace("/", "-")
+    path = STORE / safe
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+TICKER = "RELIANCE.NS"
+PERIOD = "5y"
+try:
+    import ipywidgets as W
+    from ipywidgets import interactive_output
+    stock = W.Dropdown(options=list(STOCK_UNIVERSE.items()), value=TICKER, description="Stock:")
+    custom = W.Text(value="", placeholder="e.g. INFY.NS or AAPL", description="Custom:")
+    period = W.ToggleButtons(options=["2y", "5y", "10y", "max"], value=PERIOD, description="Lookback:")
+
+    def _pick(stock, custom, period):
+        global TICKER, PERIOD, bars
+        TICKER = (custom or "").strip() or stock
+        PERIOD = period
+        bars = load_ohlcv(TICKER, PERIOD)
+        print(f"{TICKER}: {len(bars)} sessions {bars.index.min().date()} -> {bars.index.max().date()}")
+        print("will write to", ticker_dir(TICKER))
+
+    display(W.VBox([W.HBox([stock, period]), custom]),
+            interactive_output(_pick, {"stock": stock, "custom": custom, "period": period}))
+except ImportError:
+    bars = load_ohlcv(TICKER, PERIOD)
+    print("no ipywidgets — using", TICKER, len(bars), "bars")
+"""),
+        md("""### Fundamentals scorecard
+
+These are Yahoo's latest snapshot fields — delayed, vendor-mapped, and sometimes missing for Indian names. A blank is "Yahoo did not return it," not "the company has no debt." None of this is a buy/sell rating."""),
+        code("""def ensure_bars():
+    global TICKER, PERIOD, bars
+    if "bars" not in globals():
+        TICKER = globals().get("TICKER", "RELIANCE.NS")
+        PERIOD = globals().get("PERIOD", "5y")
+        bars = load_ohlcv(TICKER, PERIOD)
+    return bars
+
+def fundamental_snapshot(ticker):
+    info = yf.Ticker(ticker).info or {}
+    keys = [
+        "longName", "sector", "industry", "currency", "marketCap",
+        "currentPrice", "previousClose", "fiftyTwoWeekLow", "fiftyTwoWeekHigh",
+        "trailingPE", "forwardPE", "pegRatio", "priceToBook", "enterpriseToEbitda",
+        "profitMargins", "operatingMargins", "returnOnEquity", "returnOnAssets",
+        "debtToEquity", "currentRatio", "freeCashflow", "operatingCashflow",
+        "revenueGrowth", "earningsGrowth", "earningsQuarterlyGrowth",
+        "dividendYield", "payoutRatio", "beta",
+        "targetMeanPrice", "targetMedianPrice", "targetHighPrice", "targetLowPrice",
+        "numberOfAnalystOpinions", "recommendationKey", "recommendationMean",
+    ]
+    snap = {k: info.get(k) for k in keys}
+    snap["ticker"] = ticker
+    return snap, info
+
+bars = ensure_bars()
+fund, raw_info = fundamental_snapshot(TICKER)
+spot = float(bars["close"].iloc[-1])
+fund["last_close"] = spot
+display(pd.Series(fund).to_frame("value"))
+
+def flag_fundamentals(s):
+    rows = []
+    def add(name, ok, detail):
+        rows.append({"point": name, "ok": ok, "detail": detail})
+    pe = s.get("trailingPE")
+    add("PE is finite and not extreme (>0, <60)",
+        pe is not None and 0 < float(pe) < 60,
+        f"trailing PE={pe}")
+    fpe = s.get("forwardPE")
+    add("Forward PE available and below trailing (growth priced in, or just cheaper fwd)",
+        fpe is not None and pe is not None and 0 < float(fpe) <= float(pe) * 1.05,
+        f"forward PE={fpe}")
+    margin = s.get("profitMargins")
+    add("Profit margin positive",
+        margin is not None and float(margin) > 0,
+        f"profit margin={margin}")
+    roe = s.get("returnOnEquity")
+    add("ROE positive",
+        roe is not None and float(roe) > 0,
+        f"ROE={roe}")
+    de = s.get("debtToEquity")
+    add("Debt/equity reported and under 200",
+        de is not None and 0 <= float(de) < 200,
+        f"D/E={de}")
+    growth = s.get("revenueGrowth")
+    add("Revenue growth not deeply negative",
+        growth is None or float(growth) > -0.15,
+        f"revenue growth={growth}")
+    fcf = s.get("freeCashflow")
+    add("Free cash flow positive (when Yahoo reports it)",
+        fcf is None or float(fcf) > 0,
+        f"FCF={fcf}")
+    lo, hi = s.get("fiftyTwoWeekLow"), s.get("fiftyTwoWeekHigh")
+    if lo and hi and float(hi) > float(lo):
+        loc = (spot - float(lo)) / (float(hi) - float(lo))
+        add("Not pinned at the 52-week high (location < 0.98)",
+            loc < 0.98, f"52w location={loc:.0%}")
+    else:
+        add("52-week range available", False, "Yahoo did not return 52w high/low")
+    return pd.DataFrame(rows)
+
+fund_flags = flag_fundamentals(fund)
+print(f"\\n{TICKER} fundamental checklist  ({int(fund_flags.ok.sum())}/{len(fund_flags)} points true)")
+display(fund_flags)
+"""),
+        md("""### Technical scorecard
+
+Same engine as notebook 21. The "points" below are *descriptions of the last closed bar*, not entries. A close above SMA20 in a 10-ADX chop is not a trend."""),
+        code("""bars = ensure_bars()
+indicators = compute_top_50(bars)
+last = indicators.iloc[-1]
+close = bars["close"]
+spot = float(close.iloc[-1])
+
+tech = {
+    "close": spot,
+    "sma20": float(last["01_sma_20"]),
+    "ema20": float(last["02_ema_20"]),
+    "macd": float(last["08_macd"]),
+    "macd_signal": float(last["09_macd_signal"]),
+    "rsi14": float(last["14_rsi_14"]),
+    "bb_upper": float(last["25_bollinger_upper"]),
+    "bb_lower": float(last["26_bollinger_lower"]),
+    "bb_bandwidth": float(last["27_bollinger_bandwidth"]),
+    "atr14": float(last["28_atr_14"]),
+    "hv20": float(last["36_historical_volatility"]),
+    "adx14": float(last["37_adx_14"]),
+    "plus_di": float(last["38_plus_di"]),
+    "minus_di": float(last["39_minus_di"]),
+    "mfi14": float(last["48_mfi_14"]),
+}
+display(pd.Series(tech).to_frame("value"))
+
+tech_flags = pd.DataFrame([
+    {"point": "Close above SMA20 (short-term average reclaim)",
+     "ok": spot > tech["sma20"], "detail": f"close {spot:.2f} vs SMA {tech['sma20']:.2f}"},
+    {"point": "EMA20 above SMA20 (rising-average regime)",
+     "ok": tech["ema20"] > tech["sma20"], "detail": f"EMA {tech['ema20']:.2f} / SMA {tech['sma20']:.2f}"},
+    {"point": "MACD above signal (short-term momentum confirmation)",
+     "ok": tech["macd"] > tech["macd_signal"], "detail": f"MACD {tech['macd']:.3f} / sig {tech['macd_signal']:.3f}"},
+    {"point": "RSI not overbought (>70)",
+     "ok": tech["rsi14"] <= 70, "detail": f"RSI {tech['rsi14']:.1f}"},
+    {"point": "RSI not oversold (<30)",
+     "ok": tech["rsi14"] >= 30, "detail": f"RSI {tech['rsi14']:.1f}"},
+    {"point": "Close inside Bollinger bands (not walking an extreme)",
+     "ok": tech["bb_lower"] <= spot <= tech["bb_upper"],
+     "detail": f"[{tech['bb_lower']:.2f}, {tech['bb_upper']:.2f}]"},
+    {"point": "ADX >= 20 (something other than dead chop)",
+     "ok": tech["adx14"] >= 20, "detail": f"ADX {tech['adx14']:.1f}"},
+    {"point": "+DI above -DI (directional control, if any)",
+     "ok": tech["plus_di"] > tech["minus_di"],
+     "detail": f"+DI {tech['plus_di']:.1f} / -DI {tech['minus_di']:.1f}"},
+    {"point": "MFI between 20 and 80 (volume-weighted oscillator not pinned)",
+     "ok": 20 <= tech["mfi14"] <= 80, "detail": f"MFI {tech['mfi14']:.1f}"},
+])
+print(f"\\n{TICKER} technical checklist  ({int(tech_flags.ok.sum())}/{len(tech_flags)} points true)")
+display(tech_flags)
+"""),
+        md("""## Projectors — Prophet, Street target, vol cone
+
+Three different objects, often drawn as if they were one forecast:
+
+1. **Prophet** (`yhat` ± interval) — decomposes the *price level* into trend + yearly seasonality. It will hug a drifting series and look "accurate" on a price chart for the same reason notebook 33's naive overlay does.
+2. **Analyst target** — Yahoo's consensus `targetMeanPrice` (when present). A 12-month-ish Street number, not a path, and often stale.
+3. **Drift-and-vol cone** — last close grown at the sample mean, with ±1σ / ±2σ bands from realized vol. This is a **distribution sketch**, not a prediction.
+
+None of them is a trade. The holdout cell below is the only number that can embarrass Prophet."""),
+        code("""from datetime import timedelta
+
+def naive_dates(index):
+    idx = pd.to_datetime(index)
+    if getattr(idx, "tz", None) is not None:
+        return idx.tz_convert("UTC").tz_localize(None)
+    return idx
+
+bars = ensure_bars()
+close = bars["close"]
+spot = float(close.iloc[-1])
+horizon = int(globals().get("HORIZON_DAYS", 90))
+
+# --- Prophet on the full sample (the pretty chart) ---
+from prophet import Prophet
+
+prophet_df = pd.DataFrame({
+    "ds": naive_dates(close.index),
+    "y": close.values,
+})
+model = Prophet(
+    daily_seasonality=False,
+    weekly_seasonality=False,
+    yearly_seasonality=True,
+    changepoint_prior_scale=0.05,
+)
+model.fit(prophet_df)
+future = model.make_future_dataframe(periods=horizon, freq="B")
+forecast = model.predict(future)
+forecast_future = forecast[forecast["ds"] > prophet_df["ds"].max()].copy()
+print(f"Prophet fitted on {len(prophet_df)} days; projecting {len(forecast_future)} business days")
+print(forecast_future[["ds", "yhat", "yhat_lower", "yhat_upper"]].tail(3))
+
+# --- Analyst projector ---
+tgt_mean = fund.get("targetMeanPrice")
+tgt_hi = fund.get("targetHighPrice")
+tgt_lo = fund.get("targetLowPrice")
+n_op = fund.get("numberOfAnalystOpinions")
+print(f"analyst target mean={tgt_mean}  high={tgt_hi}  low={tgt_lo}  n={n_op}")
+
+# --- Drift / vol cone ---
+log_ret = np.log(close / close.shift(1)).dropna()
+mu = float(log_ret.mean())
+sig = float(log_ret.std())
+steps = np.arange(1, horizon + 1)
+cone_idx = pd.bdate_range(close.index[-1] + timedelta(days=1), periods=horizon)
+drift = spot * np.exp(mu * steps)
+cone = pd.DataFrame({
+    "mid": drift,
+    "lo1": spot * np.exp(mu * steps - sig * np.sqrt(steps)),
+    "hi1": spot * np.exp(mu * steps + sig * np.sqrt(steps)),
+    "lo2": spot * np.exp(mu * steps - 2 * sig * np.sqrt(steps)),
+    "hi2": spot * np.exp(mu * steps + 2 * sig * np.sqrt(steps)),
+}, index=cone_idx)
+print(f"vol cone: daily mu={mu:.5f}, sigma={sig:.5f}, {horizon}d mid={cone['mid'].iloc[-1]:.2f}")
+"""),
+        md("""### Projector chart
+
+Price + SMA20 + Bollinger, then the three projectors to the right of the last bar. If Prophet's fan and the vol cone disagree violently, believe neither — they encode different assumptions."""),
+        code("""fig, axes = plt.subplots(2, 1, figsize=(11.5, 8.2), sharex=False,
+                         gridspec_kw={"height_ratios": [2.4, 1]})
+ax = axes[0]
+hist = close.iloc[-min(len(close), 400):]
+ax.plot(hist.index, hist.values, color="#1a1a1a", lw=1.15, label="Close")
+ax.plot(indicators.index, indicators["01_sma_20"], color="#2563eb", lw=0.9, label="SMA20")
+ax.fill_between(indicators.index, indicators["26_bollinger_lower"], indicators["25_bollinger_upper"],
+                color="#2563eb", alpha=0.08, label="Bollinger")
+ax.plot(forecast_future["ds"], forecast_future["yhat"], color="#7c3aed", lw=1.2, label="Prophet yhat")
+ax.fill_between(forecast_future["ds"], forecast_future["yhat_lower"], forecast_future["yhat_upper"],
+                color="#7c3aed", alpha=0.15, label="Prophet interval")
+ax.plot(cone.index, cone["mid"], color="#0f766e", lw=1.0, ls="--", label="drift mid")
+ax.fill_between(cone.index, cone["lo1"], cone["hi1"], color="#0f766e", alpha=0.12, label="vol ±1σ")
+if tgt_mean:
+    ax.axhline(float(tgt_mean), color="#be123c", lw=1.0, ls=":", label=f"analyst mean {float(tgt_mean):.1f}")
+ax.set_title(f"{TICKER} — price, technicals, and three projectors")
+ax.legend(loc="upper left", fontsize=7, frameon=False, ncol=2)
+ax.grid(True, alpha=0.25)
+
+axes[1].plot(indicators.index, indicators["14_rsi_14"], color="#0f766e", lw=1)
+axes[1].axhline(70, color="#b45309", ls="--", lw=0.8)
+axes[1].axhline(30, color="#b45309", ls="--", lw=0.8)
+axes[1].set_ylim(0, 100)
+axes[1].set_ylabel("RSI 14")
+axes[1].grid(True, alpha=0.25)
+fig.tight_layout()
+projector_png = ticker_dir(TICKER) / "projector.png"
+fig.savefig(projector_png, dpi=140, bbox_inches="tight")
+plt.show()
+print("saved", projector_png)
+
+fig2 = model.plot_components(forecast)
+fig2.set_size_inches(11, 6)
+components_png = ticker_dir(TICKER) / "prophet_components.png"
+fig2.savefig(components_png, dpi=120, bbox_inches="tight")
+plt.show()
+print("saved", components_png)
+"""),
+        md("""### Holdout — Prophet vs naive on the last 90 sessions
+
+Fit on everything *before* the last 90 bars, project those 90, score **prices and returns**. If Prophet's price MAE is only a hair under naive, the fan chart is a smoother. Notebook 33 is the longer version of this argument."""),
+        code("""hold = min(90, max(40, len(close) // 6))
+train_close = close.iloc[:-hold]
+test_close = close.iloc[-hold:]
+train_df = pd.DataFrame({
+    "ds": naive_dates(train_close.index),
+    "y": train_close.values,
+})
+hold_model = Prophet(daily_seasonality=False, weekly_seasonality=False, yearly_seasonality=True)
+hold_model.fit(train_df)
+hold_future = hold_model.make_future_dataframe(periods=hold, freq="B")
+hold_fc = hold_model.predict(hold_future)
+pred = hold_fc.set_index("ds")["yhat"].reindex(naive_dates(test_close.index))
+aligned = pd.DataFrame({"actual": test_close.values, "prophet": pred.values}, index=test_close.index).dropna()
+naive = pd.Series(float(train_close.iloc[-1]), index=aligned.index)
+mae_p = float(np.mean(np.abs(aligned["actual"] - aligned["prophet"])))
+mae_n = float(np.mean(np.abs(aligned["actual"] - naive)))
+# return-space: next-day change implied by the path vs actual change
+act_ret = aligned["actual"].pct_change(fill_method=None).dropna()
+pr_ret = aligned["prophet"].pct_change(fill_method=None).reindex(act_ret.index)
+naive_ret = pd.Series(0.0, index=act_ret.index)
+print(f"holdout {aligned.index.min().date()} -> {aligned.index.max().date()}  ({len(aligned)} sessions)")
+print(f"price MAE  prophet={mae_p:.3f}  naive(last train close)={mae_n:.3f}")
+print(f"return MAE prophet={float(np.mean(np.abs(act_ret - pr_ret))):.5f}  naive(0)={float(np.mean(np.abs(act_ret))):.5f}")
+print("If return MAE is not clearly better than naive, do not ship the fan as a forecast.")
+"""),
+        md("""## Write the lab folder (Drive or local)
+
+Every re-run overwrites the ticker's folder. Take the PNG and the scorecard into a note; do not treat `forecast.csv` as an order blotter."""),
+        code("""out = ticker_dir(TICKER)
+bars.to_csv(out / "ohlcv.csv")
+indicators.to_csv(out / "indicators.csv")
+forecast.to_csv(out / "prophet_forecast.csv", index=False)
+cone.to_csv(out / "vol_cone.csv")
+pd.Series(fund).to_json(out / "fundamentals.json", indent=2)
+fund_flags.to_csv(out / "fundamentals_checklist.csv", index=False)
+tech_flags.to_csv(out / "technicals_checklist.csv", index=False)
+
+score = [
+    f"# {TICKER} lab scorecard",
+    f"as_of: {bars.index[-1].date()}  close: {spot:.4f}  store: {out}",
+    "",
+    "## Fundamentals",
+    fund_flags.to_string(index=False),
+    "",
+    "## Technicals (last closed bar)",
+    tech_flags.to_string(index=False),
+    "",
+    "## Projectors",
+    f"Prophet {horizon}d yhat: {float(forecast_future['yhat'].iloc[-1]):.2f} "
+    f"[{float(forecast_future['yhat_lower'].iloc[-1]):.2f}, {float(forecast_future['yhat_upper'].iloc[-1]):.2f}]",
+    f"Vol-cone mid: {float(cone['mid'].iloc[-1]):.2f}  ±1σ "
+    f"[{float(cone['lo1'].iloc[-1]):.2f}, {float(cone['hi1'].iloc[-1]):.2f}]",
+    f"Analyst mean target: {tgt_mean}  (n={n_op})",
+    f"Holdout price MAE prophet={mae_p:.3f} vs naive={mae_n:.3f}",
+    "",
+    "Educational only. Projectors are not orders.",
+]
+(out / "SCORECARD.md").write_text("\\n".join(score))
+print("wrote", out)
+print("\\n".join(sorted(p.name for p in out.iterdir())))
+display(Markdown((out / "SCORECARD.md").read_text()))
+"""),
+        md("""## How to use this without fooling yourself
+
+- **Drive is a filing cabinet.** It does not make Prophet more true. It just means the PNG is still there after Colab disconnects.
+- **Fundamentals flags are existence checks**, not a quality compounder screen. "D/E under 200" is a sanity bound; sector norms differ.
+- **Technical flags describe one bar.** Combine a trend read with a volatility or ADX filter before you even paper-trade (notebooks 21 and 23).
+- **Three projectors should not be averaged into a "fair price."** They answer different questions. If you need a forecast research design, start from notebook 33's return-space naive baseline and notebook 29's costs.
+
+Next: take a name that *fails* several fundamental flags and run notebook 21's scenario board on it — the indicators will still print numbers."""),
+    ]
+
+
 # ── Notebook index ──────────────────────────────────────────────────────
 
 NOTEBOOKS = [
@@ -3056,6 +3496,7 @@ NOTEBOOKS = [
     {"filename": "32_stock_correlation_and_pairs.ipynb", "title": "Stock Correlation, Clusters and Pairs", "subtitle": "Live-basket correlation heatmap, rolling correlation vs Nifty, and why a tight pair is not a hedge — the useful part of the Kaggle market-analysis notebooks.", "body": body_32_correlation_and_pairs, "setup": yfinance_setup_cells},
     {"filename": "33_return_prediction_baselines.ipynb", "title": "Return Prediction Baselines (Beat Naive First)", "subtitle": "Time-ordered linear and forest forecasts vs a zero-return naive baseline — the honest rewrite of the copied LSTM price-prediction notebooks.", "body": body_33_prediction_baselines, "setup": yfinance_setup_cells},
     {"filename": "34_portfolio_analytics.ipynb", "title": "Portfolio Analytics: Weights, Frontier, Drawdown", "subtitle": "Equal-weight vs inverse-vol vs in-sample max Sharpe on a live NSE basket, Monte Carlo frontier, equity curves — PyPortfolioOpt-style, no extra optimiser.", "body": body_34_portfolio_analytics, "setup": yfinance_setup_cells},
+    {"filename": "35_prophet_drive_fundamentals_projectors.ipynb", "title": "Prophet, Drive Lab & Three Projectors", "subtitle": "yfinance + Google Drive persistence: fundamental and technical scorecards, Prophet fan, analyst target and a vol cone — with a holdout that has to beat naive.", "body": body_35_prophet_drive_lab, "setup": yfinance_drive_setup_cells},
 ]
 
 NB_METADATA = {
